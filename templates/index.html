@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Pomodoro Timer</title>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; background: #f0f0f0; }
+        #timer { font-size: 20vw; margin-top: 20px; }
+        button { font-size: 1.5rem; margin: 5px; padding: 10px 20px; }
+        .pomodoro-btn { background-color: #e74c3c; color: white; }
+        .short-btn { background-color: #3498db; color: white; }
+        .long-btn { background-color: #2c3e50; color: white; }
+        table { margin: 20px auto; border-collapse: collapse; background: white; }
+        th, td { border: 1px solid #ccc; padding: 5px 10px; }
+        #history-container { max-height: 200px; overflow-y: scroll; margin-top: 20px; }
+    </style>
+</head>
+<body>
+    <h1>Pomodoro Timer</h1>
+    <div id="timer">25:00</div>
+    <div>
+        <button onclick="startTimer()">Start</button>
+        <button onclick="pauseTimer()">Pause</button>
+        <button onclick="resumeTimer()">Resume</button>
+        <button onclick="skipTimer()">Skip</button>
+    </div>
+    <div>
+        <button class="pomodoro-btn" onclick="setPomodoro()">Pomodoro</button>
+        <button class="short-btn" onclick="setShortBreak()">Short Break</button>
+        <button class="long-btn" onclick="setLongBreak()">Long Break</button>
+    </div>
+    
+    <h3>Today's Stats</h3>
+    <table>
+        <tr><th>Pomodoros</th><th>Skips</th><th>Short Breaks</th><th>Long Breaks</th></tr>
+        <tr id="todayStats">
+            <td>{{ today_stats.pomodoros }}</td>
+            <td>{{ today_stats.skips }}</td>
+            <td>{{ today_stats.short_breaks }}</td>
+            <td>{{ today_stats.long_breaks }}</td>
+        </tr>
+    </table>
+
+    <h3>Totals</h3>
+    <table>
+        <tr><th>Pomodoros</th><th>Skips</th><th>Short Breaks</th><th>Long Breaks</th></tr>
+        <tr id="totals">
+            <td>{{ totals.pomodoros }}</td>
+            <td>{{ totals.skips }}</td>
+            <td>{{ totals.short_breaks }}</td>
+            <td>{{ totals.long_breaks }}</td>
+        </tr>
+    </table>
+
+    <h3>History</h3>
+    <div id="history-container">
+        <table>
+            <tr><th>Date</th><th>Pomodoros</th><th>Skips</th><th>Short Breaks</th><th>Long Breaks</th></tr>
+            {% for day in history %}
+            <tr>
+                <td>{{ day.date }}</td>
+                <td>{{ day.pomodoros }}</td>
+                <td>{{ day.skips }}</td>
+                <td>{{ day.short_breaks }}</td>
+                <td>{{ day.long_breaks }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+    </div>
+
+    <audio id="alarm">
+        <source src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg" type="audio/ogg">
+    </audio>
+
+    <script>
+        let timer;
+        let duration = 25 * 60;
+        let remaining = duration;
+        let running = false;
+        let phase = "pomodoro"; // or "short", "long"
+        const alarm = document.getElementById("alarm"); // SOUND CONTROL HERE
+
+        document.addEventListener('keydown', (e) => {
+            if (document.activeElement.tagName !== 'INPUT') {
+                if (e.code === 'Space') {
+                    e.preventDefault();
+                    if (!running) startTimer();
+                    else pauseTimer();
+                }
+            }
+        });
+
+        function updateDisplay() {
+            const minutes = String(Math.floor(remaining / 60)).padStart(2, '0');
+            const seconds = String(remaining % 60).padStart(2, '0');
+            document.getElementById("timer").textContent = `${minutes}:${seconds}`;
+            document.title = `${minutes}:${seconds} - Pomodoro`;
+        }
+
+        function tick() {
+            if (remaining > 0) {
+                remaining--;
+                updateDisplay();
+            } else {
+                clearInterval(timer);
+                running = false;
+                alarm.play(); // SOUND PLAY
+                updateStat(phase === "pomodoro" ? "pomodoros" : (phase === "short" ? "short_breaks" : "long_breaks"));
+                autoSwitch();
+            }
+        }
+
+        function startTimer() {
+            if (!running) {
+                running = true;
+                timer = setInterval(tick, 1000);
+            }
+        }
+
+        function pauseTimer() {
+            clearInterval(timer);
+            running = false;
+        }
+
+        function resumeTimer() {
+            if (!running) {
+                running = true;
+                timer = setInterval(tick, 1000);
+            }
+        }
+
+        function skipTimer() {
+            updateStat("skips");
+            clearInterval(timer);
+            running = false;
+            autoSwitch();
+        }
+
+        function setPomodoro() {
+            phase = "pomodoro";
+            duration = remaining = 25 * 60;
+            updateDisplay();
+        }
+
+        function setShortBreak() {
+            phase = "short";
+            duration = remaining = 5 * 60;
+            updateDisplay();
+        }
+
+        function setLongBreak() {
+            phase = "long";
+            duration = remaining = 15 * 60;
+            updateDisplay();
+        }
+
+        function autoSwitch() {
+            if (phase === "pomodoro") {
+                setShortBreak();
+            } else {
+                setPomodoro();
+            }
+        }
+
+        function updateStat(type) {
+            fetch("/update_stat", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({type})
+            })
+            .then(r => r.json())
+            .then(data => {
+                const today = data.today_stats;
+                const totals = data.totals;
+                document.getElementById("todayStats").innerHTML = `
+                    <td>${today.pomodoros}</td>
+                    <td>${today.skips}</td>
+                    <td>${today.short_breaks}</td>
+                    <td>${today.long_breaks}</td>
+                `;
+                document.getElementById("totals").innerHTML = `
+                    <td>${totals.pomodoros}</td>
+                    <td>${totals.skips}</td>
+                    <td>${totals.short_breaks}</td>
+                    <td>${totals.long_breaks}</td>
+                `;
+            });
+        }
+
+        updateDisplay();
+    </script>
+</body>
+</html>
